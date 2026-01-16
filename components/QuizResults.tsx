@@ -169,7 +169,7 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
         )}
         
         <Button onClick={onRetry} variant="secondary">Làm lại tất cả</Button>
-        <Button onClick={onNewFile} variant="secondary">Cấu hình đề thi</Button>
+        <Button onClick={onNewFile} variant="secondary">Quay lại trang chính</Button>
         
         <div className="flex gap-2">
           <Button onClick={handleExportWord} isLoading={isExporting} className="bg-blue-600 hover:bg-blue-700 text-white border-none">

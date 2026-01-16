@@ -149,6 +149,7 @@ function App() {
     setSavedAnswers({});
     setSavedTimeLeft(null);
     localStorage.removeItem(STORAGE_KEY);
+    setAppState(AppState.UPLOAD);
   };
 
   const handleFileSelect = async (file: File) => {
@@ -209,7 +210,7 @@ function App() {
     }
   };
 
-  const handleLoadMore = async () => {
+  const handleBatchAppend = async () => {
     if (fileContext) {
       const nextBatch = currentBatchIndex + 1;
       await loadQuizBatch(fileContext, nextBatch, true); // Append
@@ -386,11 +387,8 @@ function App() {
   };
 
   const handleReconfigure = () => {
-    // Go back to config with full data
-    setUserAnswers({});
-    setTimeSpent(0);
-    setAppState(AppState.CONFIG);
-    localStorage.removeItem(STORAGE_KEY);
+    // Reset session and go back to UPLOAD screen (main page) as requested
+    handleDiscardSession();
   };
 
   const handleGoHome = () => {
@@ -486,7 +484,7 @@ function App() {
               onStart={handleStartQuiz}
               onCancel={handleDiscardSession}
               onLoadBatch={handleBatchChange}
-              onLoadMore={handleLoadMore}
+              onLoadMore={handleBatchAppend}
               currentBatchIndex={currentBatchIndex}
             />
           </div>
