@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "QuizHistoryItem": {
+      "title": "QuizHistoryItem",
+      "description": "A record of a completed quiz session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "title": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "timeSpent": { "type": "number" },
+        "quizData": { "type": "object" },
+        "userAnswers": { "type": "object" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "title", "score", "totalQuestions", "correctCount", "timeSpent", "quizData", "userAnswers", "userId"]
+    },
+    "SavedQuiz": {
+      "title": "SavedQuiz",
+      "description": "A generated quiz saved for later use.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "quizData": { "type": "object" },
+        "userId": { "type": "string" },
+        "folderId": { "type": "string" },
+        "userAnswers": { "type": "object" },
+        "timeSpent": { "type": "number" }
+      },
+      "required": ["id", "title", "timestamp", "quizData", "userId"]
+    },
+    "Folder": {
+      "title": "Folder",
+      "description": "A user-created folder to organize saved quizzes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "name", "userId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/history/{historyId}": {
+      "schema": "QuizHistoryItem",
+      "description": "User's quiz history records."
+    },
+    "/users/{userId}/savedQuizzes/{quizId}": {
+      "schema": "SavedQuiz",
+      "description": "User's saved quizzes."
+    },
+    "/users/{userId}/folders/{folderId}": {
+      "schema": "Folder",
+      "description": "User's custom folders."
+    }
+  }
+}

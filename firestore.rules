@@ -1,0 +1,138 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}/history/{historyId}
+    // Document ID: historyId
+    // Fields:
+    //   - id: string (required) - unique ID for the history item
+    //   - timestamp: number (required) - when the quiz was completed
+    //   - title: string (required) - title of the quiz
+    //   - score: number (required) - percentage score
+    //   - totalQuestions: number (required) - total number of questions
+    //   - correctCount: number (required) - number of correct answers
+    //   - timeSpent: number (required) - total time spent in seconds
+    //   - quizData: object (required) - the full quiz content
+    //   - userAnswers: object (required) - the user's selected answers
+    //   - userId: string (required) - ID of the user who took the quiz
+    //
+    // Collection: /users/{userId}/savedQuizzes/{quizId}
+    // Document ID: quizId
+    // Fields:
+    //   - id: string (required) - unique ID for the saved quiz
+    //   - title: string (required) - title of the quiz
+    //   - timestamp: number (required) - when the quiz was saved
+    //   - quizData: object (required) - the full quiz content
+    //   - userId: string (required) - ID of the user who saved the quiz
+    //   - folderId: string (optional) - ID of the folder this quiz belongs to
+    //
+    // Collection: /users/{userId}/folders/{folderId}
+    // Document ID: folderId
+    // Fields:
+    //   - id: string (required) - unique ID for the folder
+    //   - name: string (required) - name of the folder
+    //   - userId: string (required) - ID of the user who owns the folder
+    //   - timestamp: number (required) - when the folder was created
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "nthithao1988bn@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidQuizHistory(data) {
+      let requiredFields = ['id', 'timestamp', 'title', 'score', 'totalQuestions', 'correctCount', 'timeSpent', 'quizData', 'userAnswers', 'userId'];
+      return data.keys().hasOnly(requiredFields) &&
+             data.keys().hasAll(requiredFields) &&
+             data.id is string && data.id.size() > 0 &&
+             data.timestamp is number &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             data.score is number && data.score >= 0 && data.score <= 10 &&
+             data.totalQuestions is number && data.totalQuestions > 0 &&
+             data.correctCount is number && data.correctCount >= 0 &&
+             data.timeSpent is number && data.timeSpent >= 0 &&
+             data.quizData is map &&
+             data.userAnswers is map &&
+             data.userId is string &&
+             data.userId == request.auth.uid;
+    }
+
+    function isHistoryUnchanged() {
+      // History items should generally be immutable once saved, except maybe for some metadata
+      // For now, let's assume they are immutable
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['id', 'userId', 'timestamp']);
+    }
+
+    function isValidSavedQuiz(data) {
+      let requiredFields = ['id', 'title', 'timestamp', 'quizData', 'userId'];
+      let allowedFields = ['id', 'title', 'timestamp', 'quizData', 'userId', 'folderId', 'userAnswers', 'timeSpent'];
+      return data.keys().hasOnly(allowedFields) &&
+             data.keys().hasAll(requiredFields) &&
+             data.id is string && data.id.size() > 0 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             data.timestamp is number &&
+             data.quizData is map &&
+             data.userId is string &&
+             data.userId == request.auth.uid &&
+             (!('folderId' in data) || (data.folderId is string && data.folderId.size() > 0)) &&
+             (!('userAnswers' in data) || data.userAnswers is map) &&
+             (!('timeSpent' in data) || data.timeSpent is number);
+    }
+
+    function isValidFolder(data) {
+      let requiredFields = ['id', 'name', 'userId', 'timestamp'];
+      return data.keys().hasOnly(requiredFields) &&
+             data.keys().hasAll(requiredFields) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.timestamp is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+
+      match /history/{historyId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidQuizHistory(request.resource.data);
+        allow update: if isOwner(userId) && isValidQuizHistory(request.resource.data) && isHistoryUnchanged();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /savedQuizzes/{quizId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidSavedQuiz(request.resource.data);
+        allow update: if isOwner(userId) && isValidSavedQuiz(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /folders/{folderId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidFolder(request.resource.data);
+        allow update: if isOwner(userId) && isValidFolder(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+  }
+}

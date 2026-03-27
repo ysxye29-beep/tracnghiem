@@ -4,8 +4,40 @@ import { QuizPlayer } from './components/QuizPlayer';
 import { QuizResults } from './components/QuizResults';
 import { QuizConfig } from './components/QuizConfig';
 import { QuizHistory } from './components/QuizHistory';
+import { SavedQuizzes } from './components/SavedQuizzes';
 import { processFileToQuiz } from './services/geminiService';
-import { AppState, QuizData, UserAnswers, Question, QuizHistoryItem } from './types';
+import { AppState, QuizData, UserAnswers, Question, QuizHistoryItem, SavedQuiz, Folder } from './types';
+import { auth, loginWithGoogle, logout, db } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc, orderBy, onSnapshot, limit, updateDoc, setDoc, deleteField } from 'firebase/firestore';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
 
 // Store file context to allow re-fetching different batches
 interface FileContext {
@@ -29,10 +61,18 @@ function App() {
   
   // History state
   const [history, setHistory] = useState<QuizHistoryItem[]>([]);
+  const [savedQuizzes, setSavedQuizzes] = useState<SavedQuiz[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
 
   // Resume state
   const [savedAnswers, setSavedAnswers] = useState<UserAnswers>({});
   const [savedTimeLeft, setSavedTimeLeft] = useState<number | null>(null);
+
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [currentSavedQuizId, setCurrentSavedQuizId] = useState<string | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Current batch tracking
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0); // 0 = 1-50, 1 = 51-100...
@@ -57,13 +97,77 @@ function App() {
     }
   }, [darkMode]);
 
-  // Load progress and history from local storage on mount
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+      if (currentUser) {
+        // Fetch history from Firestore
+        const historyRef = collection(db, 'users', currentUser.uid, 'history');
+        const q = query(historyRef, orderBy('timestamp', 'desc'), limit(50));
+        
+        const unsubHistory = onSnapshot(q, (snapshot) => {
+          const items: QuizHistoryItem[] = [];
+          snapshot.forEach((doc) => {
+            items.push({ ...doc.data(), id: doc.id } as QuizHistoryItem);
+          });
+          setHistory(items);
+        }, (error) => {
+          console.error("Error fetching history from Firestore:", error);
+          setErrorMsg("Không thể tải lịch sử từ đám mây.");
+        });
+
+        // Fetch saved quizzes from Firestore
+        const savedRef = collection(db, 'users', currentUser.uid, 'savedQuizzes');
+        const qSaved = query(savedRef, orderBy('timestamp', 'desc'));
+        const unsubSaved = onSnapshot(qSaved, (snapshot) => {
+          const items: SavedQuiz[] = [];
+          snapshot.forEach((doc) => {
+            items.push({ ...doc.data(), id: doc.id } as SavedQuiz);
+          });
+          setSavedQuizzes(items);
+        }, (error) => {
+          console.error("Error fetching saved quizzes from Firestore:", error);
+        });
+
+        // Fetch folders from Firestore
+        const foldersRef = collection(db, 'users', currentUser.uid, 'folders');
+        const qFolders = query(foldersRef, orderBy('timestamp', 'desc'));
+        const unsubFolders = onSnapshot(qFolders, (snapshot) => {
+          const items: Folder[] = [];
+          snapshot.forEach((doc) => {
+            items.push({ ...doc.data(), id: doc.id } as Folder);
+          });
+          setFolders(items);
+        }, (error) => {
+          console.error("Error fetching folders from Firestore:", error);
+        });
+
+        return () => {
+          unsubHistory();
+          unsubSaved();
+          unsubFolders();
+        };
+      } else {
+        // If not logged in, load from local storage
+        const savedHistory = localStorage.getItem(HISTORY_KEY);
+        if (savedHistory) {
+          setHistory(JSON.parse(savedHistory));
+        } else {
+          setHistory([]);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load progress from local storage on mount
   useEffect(() => {
     try {
       const savedData = localStorage.getItem(STORAGE_KEY);
       if (savedData) {
         const parsed = JSON.parse(savedData);
-        // Basic validation
         if (parsed.activeQuizData && parsed.appState === AppState.QUIZ) {
           setActiveQuizData(parsed.activeQuizData);
           setSavedAnswers(parsed.answers || {});
@@ -72,21 +176,227 @@ function App() {
           setFullQuizData(parsed.fullQuizData || null);
           setFileContext(parsed.fileContext || null); 
           setCurrentBatchIndex(parsed.batchIndex || 0);
-          setUserAnswers(parsed.answers || {}); // Also set current user answers for immediate resume
+          setUserAnswers(parsed.answers || {});
           setAppState(AppState.QUIZ);
         }
       }
-
-      // Load History
-      const savedHistory = localStorage.getItem(HISTORY_KEY);
-      if (savedHistory) {
-        setHistory(JSON.parse(savedHistory));
-      }
     } catch (e) {
       console.error("Failed to load saved progress", e);
-      localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
+
+  const handleLogin = async () => {
+    try {
+      await loginWithGoogle();
+    } catch (err: any) {
+      setErrorMsg("Đăng nhập thất bại: " + err.message);
+    }
+  };
+
+  const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
+    const errInfo: FirestoreErrorInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+        isAnonymous: auth.currentUser?.isAnonymous,
+        tenantId: auth.currentUser?.tenantId,
+        providerInfo: auth.currentUser?.providerData.map(provider => ({
+          providerId: provider.providerId,
+          displayName: provider.displayName,
+          email: provider.email,
+          photoUrl: provider.photoURL
+        })) || []
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  };
+
+  const sanitizeForFirestore = (obj: any): any => {
+    if (Array.isArray(obj)) {
+      return obj.map(v => sanitizeForFirestore(v));
+    } else if (obj !== null && typeof obj === 'object') {
+      return Object.fromEntries(
+        Object.entries(obj)
+          .filter(([_, v]) => v !== undefined)
+          .map(([k, v]) => [k, sanitizeForFirestore(v)])
+      );
+    }
+    return obj;
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      handleDiscardSession();
+      setSavedQuizzes([]);
+      setFolders([]);
+    } catch (err: any) {
+      setErrorMsg("Đăng xuất thất bại: " + err.message);
+    }
+  };
+
+  const handleSaveQuiz = async (folderId?: string) => {
+    if (!fullQuizData || !user) {
+      if (!user) setErrorMsg("Vui lòng đăng nhập để lưu bài.");
+      return;
+    }
+
+    setIsSyncing(true);
+    const path = `users/${user.uid}/savedQuizzes`;
+    try {
+      // Use existing ID if we loaded this quiz, otherwise create new
+      const docRef = currentSavedQuizId 
+        ? doc(db, 'users', user.uid, 'savedQuizzes', currentSavedQuizId)
+        : doc(collection(db, 'users', user.uid, 'savedQuizzes'));
+      
+      const dataToSave: any = {
+        id: docRef.id,
+        title: fullQuizData.title,
+        timestamp: Date.now(),
+        quizData: fullQuizData,
+        userId: user.uid,
+        userAnswers: userAnswers || {},
+        timeSpent: timeSpent || 0
+      };
+
+      if (folderId) {
+        dataToSave.folderId = folderId;
+      }
+
+      // Ensure title is within Firestore rules limit (500 chars)
+      if (dataToSave.title && dataToSave.title.length >= 500) {
+        dataToSave.title = dataToSave.title.substring(0, 490) + "...";
+      }
+
+      await setDoc(docRef, sanitizeForFirestore(dataToSave), { merge: true });
+      if (!currentSavedQuizId) setCurrentSavedQuizId(docRef.id);
+      setErrorMsg(null); // Clear any previous error
+    } catch (err: any) {
+      console.error("Failed to save quiz", err);
+      setErrorMsg(`Không thể lưu bài vào đám mây: ${err.message || 'Lỗi không xác định'}`);
+      try {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      } catch (e) {}
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleMoveQuiz = async (quizId: string, folderId: string | null) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      const docRef = doc(db, 'users', user.uid, 'savedQuizzes', quizId);
+      // If folderId is null, we want to remove the field.
+      // Firestore rules require folderId to be a string if it exists.
+      if (folderId === null) {
+        await updateDoc(docRef, { folderId: deleteField() });
+      } else {
+        await updateDoc(docRef, { folderId });
+      }
+    } catch (err) {
+      console.error("Failed to move quiz", err);
+      setErrorMsg("Không thể di chuyển bài thi.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCreateFolder = async (name: string) => {
+    if (!user) return;
+    setIsSyncing(true);
+    const path = `users/${user.uid}/folders`;
+    try {
+      const foldersRef = collection(db, 'users', user.uid, 'folders');
+      const newDocRef = doc(foldersRef);
+      await setDoc(newDocRef, {
+        id: newDocRef.id,
+        name: name.length >= 100 ? name.substring(0, 95) + "..." : name,
+        userId: user.uid,
+        timestamp: Date.now()
+      });
+    } catch (err) {
+      console.error("Failed to create folder", err);
+      setErrorMsg("Không thể tạo thư mục.");
+      try {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      } catch (e) {}
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleRenameFolder = async (id: string, newName: string) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      const docRef = doc(db, 'users', user.uid, 'folders', id);
+      await updateDoc(docRef, { name: newName.length >= 100 ? newName.substring(0, 95) + "..." : newName });
+    } catch (err) {
+      console.error("Failed to rename folder", err);
+      setErrorMsg("Không thể đổi tên thư mục.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      // 1. Delete the folder
+      const folderRef = doc(db, 'users', user.uid, 'folders', id);
+      await deleteDoc(folderRef);
+
+      // 2. Unset folderId for all quizzes in this folder
+      const quizzesInFolder = savedQuizzes.filter(q => q.folderId === id);
+      for (const quiz of quizzesInFolder) {
+        const quizRef = doc(db, 'users', user.uid, 'savedQuizzes', quiz.id);
+        await updateDoc(quizRef, { folderId: deleteField() });
+      }
+    } catch (err) {
+      console.error("Failed to delete folder", err);
+      setErrorMsg("Không thể xóa thư mục.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDeleteSavedQuiz = async (id: string) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      const docRef = doc(db, 'users', user.uid, 'savedQuizzes', id);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error("Failed to delete saved quiz", err);
+      setErrorMsg("Không thể xóa bài đã lưu.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleLoadSavedQuiz = (quiz: SavedQuiz) => {
+    setFullQuizData(quiz.quizData);
+    setCurrentSavedQuizId(quiz.id);
+    if (quiz.userAnswers) setUserAnswers(quiz.userAnswers);
+    if (quiz.timeSpent) setTimeSpent(quiz.timeSpent);
+    setAppState(AppState.CONFIG);
+  };
+
+  const handleReviewSavedQuiz = (quiz: SavedQuiz) => {
+    setFullQuizData(quiz.quizData);
+    setActiveQuizData(quiz.quizData);
+    setCurrentSavedQuizId(quiz.id);
+    if (quiz.userAnswers) setUserAnswers(quiz.userAnswers);
+    if (quiz.timeSpent) setTimeSpent(quiz.timeSpent);
+    setAppState(AppState.RESULTS);
+  };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
@@ -148,6 +458,7 @@ function App() {
     setFileContext(null);
     setSavedAnswers({});
     setSavedTimeLeft(null);
+    setCurrentSavedQuizId(null);
     localStorage.removeItem(STORAGE_KEY);
     setAppState(AppState.UPLOAD);
   };
@@ -316,7 +627,7 @@ function App() {
     }
   };
 
-  const saveToHistory = (answers: UserAnswers, time: number, quizData: QuizData) => {
+  const saveToHistory = async (answers: UserAnswers, time: number, quizData: QuizData) => {
     try {
       let correct = 0;
       quizData.questions.forEach(q => {
@@ -329,10 +640,9 @@ function App() {
       });
       const score = (correct / quizData.questions.length) * 10;
 
-      const newItem: QuizHistoryItem = {
-        id: crypto.randomUUID(),
+      const newItem: Omit<QuizHistoryItem, 'id'> = {
         timestamp: Date.now(),
-        title: quizData.title,
+        title: quizData.title.length >= 500 ? quizData.title.substring(0, 490) + "..." : quizData.title,
         score: score,
         totalQuestions: quizData.questions.length,
         correctCount: correct,
@@ -341,18 +651,50 @@ function App() {
         userAnswers: answers
       };
 
-      const newHistory = [newItem, ...history];
-      setHistory(newHistory);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+      if (user) {
+        setIsSyncing(true);
+        try {
+          const historyRef = collection(db, 'users', user.uid, 'history');
+          const newDocRef = doc(historyRef);
+          await setDoc(newDocRef, sanitizeForFirestore({ ...newItem, id: newDocRef.id, userId: user.uid }));
+        } catch (err) {
+          console.error("Failed to save to Firestore", err);
+          // Fallback to local storage if Firestore fails
+          const localItem = { ...newItem, id: crypto.randomUUID() } as QuizHistoryItem;
+          const newHistory = [localItem, ...history];
+          setHistory(newHistory);
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        const localItem = { ...newItem, id: crypto.randomUUID() } as QuizHistoryItem;
+        const newHistory = [localItem, ...history];
+        setHistory(newHistory);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+      }
     } catch (e) {
       console.error("Failed to save history", e);
     }
   };
 
-  const handleDeleteHistory = (id: string) => {
-    const newHistory = history.filter(item => item.id !== id);
-    setHistory(newHistory);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+  const handleDeleteHistory = async (id: string) => {
+    if (user) {
+      setIsSyncing(true);
+      try {
+        const docRef = doc(db, 'users', user.uid, 'history', id);
+        await deleteDoc(docRef);
+      } catch (err) {
+        console.error("Failed to delete from Firestore", err);
+        setErrorMsg("Không thể xóa bài làm từ đám mây.");
+      } finally {
+        setIsSyncing(false);
+      }
+    } else {
+      const newHistory = history.filter(item => item.id !== id);
+      setHistory(newHistory);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+    }
   };
 
   const handleViewHistoryItem = (item: QuizHistoryItem) => {
@@ -416,6 +758,45 @@ function App() {
           </div>
           
           <div className="flex items-center gap-4">
+             {/* User Profile / Login */}
+             {isAuthReady && (
+               <div className="flex items-center gap-3">
+                 {user ? (
+                   <div className="flex items-center gap-3">
+                     <div className="hidden sm:flex flex-col items-end">
+                       <span className="text-sm font-semibold text-slate-900 dark:text-white leading-none">{user.displayName}</span>
+                       <button 
+                         onClick={handleLogout}
+                         className="text-[10px] text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 font-medium uppercase tracking-wider"
+                       >
+                         Đăng xuất
+                       </button>
+                     </div>
+                     {user.photoURL ? (
+                       <img src={user.photoURL} alt={user.displayName || ''} className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700" referrerPolicy="no-referrer" />
+                     ) : (
+                       <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                         {user.displayName?.charAt(0) || 'U'}
+                       </div>
+                     )}
+                   </div>
+                 ) : (
+                   <button 
+                     onClick={handleLogin}
+                     className="flex items-center gap-2 py-1.5 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
+                   >
+                     <svg className="w-4 h-4" viewBox="0 0 24 24">
+                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                       <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                     </svg>
+                     Đăng nhập
+                   </button>
+                 )}
+               </div>
+             )}
+
              {(appState === AppState.QUIZ || appState === AppState.RESULTS) && activeQuizData && (
                 <div className="text-sm font-medium text-slate-500 dark:text-slate-400 hidden md:block max-w-md truncate">
                   {activeQuizData.title}
@@ -460,9 +841,11 @@ function App() {
                onTextSubmit={handleTextSubmit}
                isProcessing={false} 
                onOpenHistory={() => setAppState(AppState.HISTORY)}
+               onOpenSavedQuizzes={() => setAppState(AppState.SAVED_QUIZZES)}
                savedQuizTitle={activeQuizData?.title}
                onResume={handleResumeSession}
                onDiscard={handleDiscardSession}
+               isLoggedIn={!!user}
             />
           </div>
         )}
@@ -485,7 +868,10 @@ function App() {
               onCancel={handleDiscardSession}
               onLoadBatch={handleBatchChange}
               onLoadMore={handleBatchAppend}
+              onSave={handleSaveQuiz}
               currentBatchIndex={currentBatchIndex}
+              isLoggedIn={!!user}
+              folders={folders}
             />
           </div>
         )}
@@ -513,6 +899,10 @@ function App() {
             onNewFile={handleReconfigure} 
             bookmarks={bookmarks}
             onToggleBookmark={toggleBookmark}
+            onSave={handleSaveQuiz}
+            isLoggedIn={!!user}
+            folders={folders}
+            isSyncing={isSyncing}
           />
         )}
 
@@ -522,6 +912,24 @@ function App() {
             onView={handleViewHistoryItem}
             onDelete={handleDeleteHistory}
             onBack={() => setAppState(AppState.UPLOAD)}
+            isSyncing={isSyncing}
+            isLoggedIn={!!user}
+          />
+        )}
+
+        {appState === AppState.SAVED_QUIZZES && (
+          <SavedQuizzes 
+            quizzes={savedQuizzes}
+            folders={folders}
+            onLoad={handleLoadSavedQuiz}
+            onReview={handleReviewSavedQuiz}
+            onDelete={handleDeleteSavedQuiz}
+            onBack={() => setAppState(AppState.UPLOAD)}
+            onCreateFolder={handleCreateFolder}
+            onRenameFolder={handleRenameFolder}
+            onDeleteFolder={handleDeleteFolder}
+            onMoveQuiz={handleMoveQuiz}
+            isSyncing={isSyncing}
           />
         )}
       </main>

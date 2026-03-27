@@ -25,7 +25,8 @@ export enum AppState {
   CONFIG = 'CONFIG',
   QUIZ = 'QUIZ',
   RESULTS = 'RESULTS',
-  HISTORY = 'HISTORY'
+  HISTORY = 'HISTORY',
+  SAVED_QUIZZES = 'SAVED_QUIZZES'
 }
 
 export interface UserAnswers {
@@ -42,4 +43,22 @@ export interface QuizHistoryItem {
   timeSpent: number;
   quizData: QuizData;
   userAnswers: UserAnswers;
+}
+
+export interface SavedQuiz {
+  id: string;
+  title: string;
+  timestamp: number;
+  quizData: QuizData;
+  userId: string;
+  folderId?: string; // Optional folder ID
+  userAnswers?: UserAnswers; // Saved progress
+  timeSpent?: number; // Saved progress
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  userId: string;
+  timestamp: number;
 }

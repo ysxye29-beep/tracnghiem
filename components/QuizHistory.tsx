@@ -7,9 +7,11 @@ interface QuizHistoryProps {
   onView: (item: QuizHistoryItem) => void;
   onDelete: (id: string) => void;
   onBack: () => void;
+  isSyncing?: boolean;
+  isLoggedIn?: boolean;
 }
 
-export const QuizHistory: React.FC<QuizHistoryProps> = ({ history, onView, onDelete, onBack }) => {
+export const QuizHistory: React.FC<QuizHistoryProps> = ({ history, onView, onDelete, onBack, isSyncing, isLoggedIn }) => {
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString('vi-VN', {
       day: '2-digit',
@@ -29,11 +31,30 @@ export const QuizHistory: React.FC<QuizHistoryProps> = ({ history, onView, onDel
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Lịch sử bài thi</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Lịch sử bài thi</h2>
+          {isSyncing && (
+            <div className="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+          )}
+        </div>
         <Button onClick={onBack} variant="secondary">
           Quay lại
         </Button>
       </div>
+
+      {!isLoggedIn && (
+        <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Đăng nhập để lưu trữ vĩnh viễn</p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-400/70 mt-0.5">
+              Hiện tại kết quả chỉ được lưu tạm thời trên trình duyệt này. Hãy đăng nhập bằng Google để đồng bộ và truy cập từ mọi thiết bị.
+            </p>
+          </div>
+        </div>
+      )}
 
       {history.length === 0 ? (
         <div className="text-center py-20 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">

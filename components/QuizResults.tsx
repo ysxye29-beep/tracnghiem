@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { QuizData, UserAnswers, Question } from '../types';
+import { QuizData, UserAnswers, Question, Folder } from '../types';
 import { Button } from './Button';
 import { exportToWord } from '../services/exportService';
 
@@ -13,6 +13,10 @@ interface QuizResultsProps {
   onNewFile: () => void;
   bookmarks: number[];
   onToggleBookmark: (id: number) => void;
+  onSave?: (folderId?: string) => void;
+  isLoggedIn?: boolean;
+  folders?: Folder[];
+  isSyncing?: boolean;
 }
 
 export const QuizResults: React.FC<QuizResultsProps> = ({ 
@@ -24,7 +28,11 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
   onRetryBookmarked,
   onNewFile,
   bookmarks,
-  onToggleBookmark
+  onToggleBookmark,
+  onSave,
+  isLoggedIn,
+  folders,
+  isSyncing
 }) => {
   const [filterMode, setFilterMode] = useState<'all' | 'correct' | 'incorrect' | 'bookmarked'>('all');
   const [isExporting, setIsExporting] = useState(false);
@@ -170,6 +178,20 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
         
         <Button onClick={onRetry} variant="secondary">Làm lại tất cả</Button>
         <Button onClick={onNewFile} variant="secondary">Quay lại trang chính</Button>
+        
+        {isLoggedIn && onSave && (
+          <Button 
+            onClick={() => onSave()} 
+            variant="outline"
+            isLoading={isSyncing}
+            className="border-indigo-600 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+            Lưu tiến độ bài làm
+          </Button>
+        )}
         
         <div className="flex gap-2">
           <Button onClick={handleExportWord} isLoading={isExporting} className="bg-blue-600 hover:bg-blue-700 text-white border-none">

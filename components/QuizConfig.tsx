@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
-import { QuizData } from '../types';
+import { QuizData, Folder } from '../types';
 
 interface QuizConfigProps {
   data: QuizData;
@@ -8,10 +8,23 @@ interface QuizConfigProps {
   onCancel: () => void;
   onLoadBatch: (index: number) => void;
   onLoadMore: () => void;
+  onSave?: (folderId?: string) => void;
   currentBatchIndex: number;
+  isLoggedIn?: boolean;
+  folders?: Folder[];
 }
 
-export const QuizConfig: React.FC<QuizConfigProps> = ({ data, onStart, onCancel, onLoadBatch, onLoadMore, currentBatchIndex }) => {
+export const QuizConfig: React.FC<QuizConfigProps> = ({ 
+  data, 
+  onStart, 
+  onCancel, 
+  onLoadBatch, 
+  onLoadMore, 
+  onSave, 
+  currentBatchIndex, 
+  isLoggedIn,
+  folders = []
+}) => {
   const totalQuestions = data.questions.length;
   const maxAllowed = totalQuestions;
 
@@ -19,6 +32,7 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({ data, onStart, onCancel,
   const [timeLimit, setTimeLimit] = useState(maxAllowed); // Minutes
   const [isRandom, setIsRandom] = useState(false);
   const [isExamMode, setIsExamMode] = useState(false); // Default to Practice mode
+  const [showFolderSelect, setShowFolderSelect] = useState(false);
 
   // Update question count when data changes
   useEffect(() => {
@@ -38,6 +52,13 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({ data, onStart, onCancel,
       timeLimit: timeLimit * 60, // Convert to seconds
       isExamMode
     });
+  };
+
+  const handleSave = (folderId?: string) => {
+    if (onSave) {
+      onSave(folderId);
+      setShowFolderSelect(false);
+    }
   };
 
   const batchOptions = [];
@@ -217,11 +238,54 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({ data, onStart, onCancel,
         </div>
       </div>
 
-      <div className="p-6 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-3">
-        <Button variant="secondary" onClick={onCancel}>
-          Chọn file khác
-        </Button>
-        <Button onClick={handleStart} disabled={maxAllowed === 0}>
+      <div className="p-6 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row justify-between gap-4">
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={onCancel}>
+            Chọn file khác
+          </Button>
+          {onSave && isLoggedIn && (
+            <div className="relative">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowFolderSelect(!showFolderSelect)} 
+                className="border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                Lưu bài
+              </Button>
+              
+              {showFolderSelect && (
+                <div className="absolute bottom-full left-0 mb-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden animate-fade-in-up">
+                  <div className="p-3 text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-50 dark:border-slate-700">Chọn thư mục lưu</div>
+                  <div className="max-h-60 overflow-y-auto">
+                    <button 
+                      onClick={() => handleSave()}
+                      className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors border-b border-slate-50 dark:border-slate-700/50"
+                    >
+                      Tất cả bài thi (Mặc định)
+                    </button>
+                    {folders.length > 0 ? (
+                      folders.map(f => (
+                        <button 
+                          key={f.id}
+                          onClick={() => handleSave(f.id)}
+                          className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
+                        >
+                          {f.name}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-4 py-3 text-xs text-slate-400 italic">Chưa có thư mục nào</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <Button onClick={handleStart} disabled={maxAllowed === 0} className="w-full sm:w-auto">
           Bắt đầu làm bài
         </Button>
       </div>
