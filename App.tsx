@@ -6,7 +6,7 @@ import { QuizConfig } from './components/QuizConfig';
 import { QuizHistory } from './components/QuizHistory';
 import { SavedQuizzes } from './components/SavedQuizzes';
 import { processFileToQuiz } from './services/geminiService';
-import { AppState, QuizData, UserAnswers, Question, QuizHistoryItem, SavedQuiz, Folder } from './types';
+import { AppState, QuizData, UserAnswers, UserExplanations, Question, QuizHistoryItem, SavedQuiz, Folder } from './types';
 import { auth, loginWithGoogle, logout, db } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, orderBy, onSnapshot, limit, updateDoc, setDoc, deleteField } from 'firebase/firestore';
@@ -54,6 +54,7 @@ function App() {
   const [fullQuizData, setFullQuizData] = useState<QuizData | null>(null);
   const [activeQuizData, setActiveQuizData] = useState<QuizData | null>(null);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
+  const [userExplanations, setUserExplanations] = useState<UserExplanations>({});
   const [bookmarks, setBookmarks] = useState<number[]>([]); // Array of Question IDs
   const [timeSpent, setTimeSpent] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -452,6 +453,7 @@ function App() {
     setFullQuizData(null);
     setActiveQuizData(null);
     setUserAnswers({});
+    setUserExplanations({});
     setTimeSpent(0);
     setBookmarks([]);
     setErrorMsg(null);
@@ -528,7 +530,7 @@ function App() {
     }
   };
 
-  const handleStartQuiz = (config: { questionCount: number; isRandom: boolean; timeLimit: number; isExamMode: boolean }) => {
+  const handleStartQuiz = (config: { questionCount: number; isRandom: boolean; timeLimit: number; isExamMode: boolean; isExplanationMode: boolean }) => {
     if (!fullQuizData) return;
 
     let questions = [...fullQuizData.questions];
@@ -546,7 +548,8 @@ function App() {
       ...fullQuizData,
       questions: questions,
       timeLimit: config.timeLimit,
-      isExamMode: config.isExamMode
+      isExamMode: config.isExamMode,
+      isExplanationMode: config.isExplanationMode
     };
 
     setActiveQuizData(newActiveData);
@@ -707,9 +710,12 @@ function App() {
     setAppState(AppState.RESULTS);
   };
 
-  const handleQuizFinish = (answers: UserAnswers, time: number) => {
+  const handleQuizFinish = (answers: UserAnswers, time: number, explanations?: UserExplanations) => {
     setUserAnswers(answers);
     setTimeSpent(time);
+    if (explanations) {
+      setUserExplanations(explanations);
+    }
     setAppState(AppState.RESULTS);
     localStorage.removeItem(STORAGE_KEY); // Clear progress on finish
 
@@ -892,6 +898,7 @@ function App() {
           <QuizResults 
             data={activeQuizData} 
             userAnswers={userAnswers} 
+            userExplanations={userExplanations}
             timeSpent={timeSpent}
             onRetry={handleRetry}
             onRetryWrong={handleRetryWrong}

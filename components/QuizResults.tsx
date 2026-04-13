@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { QuizData, UserAnswers, Question, Folder } from '../types';
+import { QuizData, UserAnswers, UserExplanations, Question, Folder } from '../types';
 import { Button } from './Button';
 import { exportToWord } from '../services/exportService';
 
 interface QuizResultsProps {
   data: QuizData;
   userAnswers: UserAnswers;
+  userExplanations?: UserExplanations;
   timeSpent: number;
   onRetry: () => void;
   onRetryWrong: (questions: Question[]) => void;
@@ -22,6 +23,7 @@ interface QuizResultsProps {
 export const QuizResults: React.FC<QuizResultsProps> = ({ 
   data, 
   userAnswers, 
+  userExplanations = {},
   timeSpent, 
   onRetry, 
   onRetryWrong, 
@@ -54,8 +56,23 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
       }
     });
     const score = (correct / data.questions.length) * 10;
-    return { correct, skipped, incorrect: data.questions.length - correct - skipped, score };
-  }, [data, userAnswers]);
+
+    // Calculate explanation score if in explanation mode
+    let totalExpScore = 0;
+    let expCount = 0;
+    if (data.isExplanationMode) {
+      data.questions.forEach(q => {
+        const exp = userExplanations[q.id];
+        if (exp && typeof exp.score === 'number') {
+          totalExpScore += exp.score;
+          expCount++;
+        }
+      });
+    }
+    const avgExpScore = expCount > 0 ? totalExpScore / expCount : 0;
+
+    return { correct, skipped, incorrect: data.questions.length - correct - skipped, score, avgExpScore, expCount };
+  }, [data, userAnswers, userExplanations]);
 
   const wrongQuestions = useMemo(() => {
     return data.questions.filter(q => {
@@ -125,12 +142,19 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
       </div>
 
       {/* Score Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className={`grid grid-cols-2 ${data.isExplanationMode ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4 mb-8`}>
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
-          <div className="text-sm text-slate-500 dark:text-slate-400 mb-1">Điểm số</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400 mb-1">Điểm trắc nghiệm</div>
           <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{stats.score.toFixed(1)}</div>
           <div className="text-xs text-slate-400">Thang điểm 10</div>
         </div>
+        {data.isExplanationMode && (
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
+            <div className="text-sm text-slate-500 dark:text-slate-400 mb-1">Điểm giải thích</div>
+            <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{stats.avgExpScore.toFixed(1)}</div>
+            <div className="text-xs text-slate-400">Trung bình /10</div>
+          </div>
+        )}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-center">
           <div className="text-sm text-slate-500 dark:text-slate-400 mb-1">Đúng</div>
           <div className="text-3xl font-bold text-green-600 dark:text-green-500">{stats.correct}</div>
@@ -329,6 +353,24 @@ export const QuizResults: React.FC<QuizResultsProps> = ({
                          );
                        })}
                      </div>
+
+                     {data.isExplanationMode && userExplanations[q.id] && (
+                        <div className="mt-4 space-y-3">
+                          <div className={`p-4 rounded-lg border ${userExplanations[q.id].isCorrect ? 'bg-green-50/30 border-green-100 dark:bg-green-900/10 dark:border-green-900/30' : 'bg-red-50/30 border-red-100 dark:bg-red-900/10 dark:border-red-900/30'}`}>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Giải thích của bạn:</span>
+                              <span className="text-xs font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                                Điểm AI: {userExplanations[q.id].score}/10
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-700 dark:text-slate-300 italic mb-3">"{userExplanations[q.id].text}"</p>
+                            <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">Phản hồi từ AI:</span>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">{userExplanations[q.id].feedback}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                      {(q.explanation || q.optionExplanations) && (
                        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-800 explanation-print">

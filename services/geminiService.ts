@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { QuizData, Question } from "../types";
+import { QuizData, Question, ExplanationFeedback } from "../types";
 
 const processFileToQuiz = async (
   base64Data: string, 
@@ -83,7 +83,7 @@ const processFileToQuiz = async (
             3. Stop extracting after question ${endQuestion}.
             4. If the document uses a different numbering format, try to map the ${startQuestion}-th question in the file to the ${endQuestion}-th question sequentially.
             5. If no questions are found in this range, return an empty questions array.
-
+ 
             For each question:
             - Extract the question text.
             - Extract options (A, B, C, D).
@@ -141,4 +141,77 @@ const processFileToQuiz = async (
   }
 };
 
-export { processFileToQuiz };
+const evaluateExplanation = async (
+  question: Question,
+  userChoice: string[],
+  userExplanation: string
+): Promise<ExplanationFeedback> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const feedbackSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      feedback: { type: Type.STRING, description: "Detailed feedback on the user's explanation, correcting errors." },
+      isCorrect: { type: Type.BOOLEAN, description: "Whether the user's explanation logic is fundamentally correct." },
+      score: { type: Type.INTEGER, description: "A score from 0 to 10 based on the quality and accuracy of the explanation." },
+      standardModel: { type: Type.STRING, description: "A high-quality, standard explanation model for this question." }
+    },
+    required: ["feedback", "isCorrect", "score", "standardModel"]
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            text: `You are an expert tutor. Evaluate a student's explanation for a multiple-choice question.
+            
+            QUESTION: ${question.text}
+            OPTIONS: ${question.options.map(o => `${o.key}: ${o.text}`).join(', ')}
+            CORRECT ANSWER: ${question.correctAnswers.join(', ')}
+            STUDENT'S CHOICE: ${userChoice.join(', ')}
+            STUDENT'S EXPLANATION: "${userExplanation}"
+            
+            INSTRUCTIONS:
+            1. Analyze if the student's reasoning aligns with the correct answer.
+            2. Provide constructive feedback in Vietnamese.
+            3. Correct any misconceptions in their explanation.
+            4. Provide a "standard model" explanation that is clear and comprehensive.
+            5. Set isCorrect to true if their logic is sound, even if not perfectly phrased.
+            6. Assign a score from 0 to 10:
+               - 10: Perfect reasoning.
+               - 7-9: Good reasoning with minor omissions.
+               - 4-6: Partial understanding but some errors.
+               - 0-3: Incorrect or irrelevant reasoning.
+            `
+          }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: feedbackSchema,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+    return JSON.parse(text);
+  } catch (error: any) {
+    console.error("Gemini Evaluation Error:", error);
+    return {
+      feedback: "Không thể đánh giá giải thích lúc này. Vui lòng thử lại.",
+      isCorrect: false,
+      score: 0,
+      standardModel: question.explanation || "Không có mẫu giải thích sẵn có."
+    };
+  }
+};
+
+export { processFileToQuiz, evaluateExplanation };

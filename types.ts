@@ -17,6 +17,7 @@ export interface QuizData {
   questions: Question[];
   timeLimit?: number; // Time limit in seconds
   isExamMode?: boolean; // true = hide results until finish, false = instant feedback
+  isExplanationMode?: boolean; // true = user must explain their choice
 }
 
 export enum AppState {
@@ -31,6 +32,24 @@ export enum AppState {
 
 export interface UserAnswers {
   [questionId: number]: string[]; // questionId -> array of selectedKeys
+}
+
+export interface ExplanationFeedback {
+  feedback: string;
+  isCorrect: boolean;
+  standardModel: string;
+  score: number; // Score from 0 to 10
+}
+
+export interface UserExplanations {
+  [questionId: number]: {
+    text: string;
+    feedback?: string;
+    isCorrect?: boolean;
+    standardModel?: string;
+    score?: number;
+    isEvaluating?: boolean;
+  };
 }
 
 export interface QuizHistoryItem {

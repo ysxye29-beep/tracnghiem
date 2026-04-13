@@ -4,7 +4,7 @@ import { QuizData, Folder } from '../types';
 
 interface QuizConfigProps {
   data: QuizData;
-  onStart: (config: { questionCount: number; isRandom: boolean; timeLimit: number; isExamMode: boolean }) => void;
+  onStart: (config: { questionCount: number; isRandom: boolean; timeLimit: number; isExamMode: boolean; isExplanationMode: boolean }) => void;
   onCancel: () => void;
   onLoadBatch: (index: number) => void;
   onLoadMore: () => void;
@@ -32,6 +32,7 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({
   const [timeLimit, setTimeLimit] = useState(maxAllowed); // Minutes
   const [isRandom, setIsRandom] = useState(false);
   const [isExamMode, setIsExamMode] = useState(false); // Default to Practice mode
+  const [isExplanationMode, setIsExplanationMode] = useState(false);
   const [showFolderSelect, setShowFolderSelect] = useState(false);
 
   // Update question count when data changes
@@ -50,7 +51,8 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({
       questionCount, 
       isRandom,
       timeLimit: timeLimit * 60, // Convert to seconds
-      isExamMode
+      isExamMode,
+      isExplanationMode
     });
   };
 
@@ -147,6 +149,38 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({
                >
                  <div className={`font-semibold mb-1 ${isExamMode ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>Kiểm tra</div>
                  <div className="text-xs text-slate-500 dark:text-slate-400">Nộp bài mới biết điểm</div>
+               </button>
+             </div>
+          </div>
+
+          {/* Explanation Mode Toggle */}
+          <div>
+             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+               Chế độ giải thích
+             </label>
+             <div className="grid grid-cols-2 gap-4">
+               <button
+                 onClick={() => setIsExplanationMode(false)}
+                 className={`p-4 rounded-xl border-2 text-left transition-all ${
+                   !isExplanationMode 
+                     ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-600' 
+                     : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
+                 }`}
+               >
+                 <div className={`font-semibold mb-1 ${!isExplanationMode ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>Không cần</div>
+                 <div className="text-xs text-slate-500 dark:text-slate-400">Làm bài như bình thường</div>
+               </button>
+
+               <button
+                 onClick={() => setIsExplanationMode(true)}
+                 className={`p-4 rounded-xl border-2 text-left transition-all ${
+                   isExplanationMode 
+                     ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 ring-1 ring-indigo-600' 
+                     : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
+                 }`}
+               >
+                 <div className={`font-semibold mb-1 ${isExplanationMode ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>Yêu cầu giải thích</div>
+                 <div className="text-xs text-slate-500 dark:text-slate-400">AI chấm điểm giải thích của bạn</div>
                </button>
              </div>
           </div>

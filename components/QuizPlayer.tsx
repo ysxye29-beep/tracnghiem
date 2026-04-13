@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { QuizData, UserAnswers } from '../types';
+import { QuizData, UserAnswers, UserExplanations } from '../types';
 import { Button } from './Button';
+import { evaluateExplanation } from '../services/geminiService';
 
 interface QuizPlayerProps {
   data: QuizData;
-  onFinish: (answers: UserAnswers, timeSpent: number) => void;
+  onFinish: (answers: UserAnswers, timeSpent: number, explanations?: UserExplanations) => void;
   initialAnswers?: UserAnswers;
   initialTimeLeft?: number | null;
   onProgressUpdate?: (answers: UserAnswers, timeLeft: number) => void;
@@ -32,6 +33,8 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
     return sanitized;
   });
   
+  const [explanations, setExplanations] = useState<UserExplanations>({});
+
   // Track which multi-select questions have been submitted for feedback
   const [submittedMultiQuestions, setSubmittedMultiQuestions] = useState<number[]>([]);
 
@@ -41,6 +44,7 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
   );
 
   const isExamMode = data.isExamMode === true;
+  const isExplanationMode = data.isExplanationMode === true;
 
   useEffect(() => {
     if (Object.keys(initialAnswers).length > 0) {
@@ -105,6 +109,57 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
     setSubmittedMultiQuestions(prev => [...prev, currentQuestion.id]);
   };
 
+  const handleExplanationChange = (text: string) => {
+    setExplanations(prev => ({
+      ...prev,
+      [currentQuestion.id]: {
+        ...prev[currentQuestion.id],
+        text
+      }
+    }));
+  };
+
+  const handleSubmitExplanation = async () => {
+    const currentExp = explanations[currentQuestion.id];
+    if (!currentExp || !currentExp.text.trim()) return;
+
+    setExplanations(prev => ({
+      ...prev,
+      [currentQuestion.id]: {
+        ...prev[currentQuestion.id],
+        isEvaluating: true
+      }
+    }));
+
+    try {
+      const feedback = await evaluateExplanation(
+        currentQuestion,
+        answers[currentQuestion.id] || [],
+        currentExp.text
+      );
+
+      setExplanations(prev => ({
+        ...prev,
+        [currentQuestion.id]: {
+          ...prev[currentQuestion.id],
+          feedback: feedback.feedback,
+          isCorrect: feedback.isCorrect,
+          standardModel: feedback.standardModel,
+          isEvaluating: false
+        }
+      }));
+    } catch (error) {
+      console.error("Explanation evaluation error", error);
+      setExplanations(prev => ({
+        ...prev,
+        [currentQuestion.id]: {
+          ...prev[currentQuestion.id],
+          isEvaluating: false
+        }
+      }));
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -143,7 +198,7 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
 
   const handleSubmit = () => {
     const spent = Math.max(0, allocatedTime - timeLeft);
-    onFinish(answers, spent);
+    onFinish(answers, spent, explanations);
   };
 
   const formatTime = (seconds: number) => {
@@ -395,6 +450,93 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
                    Kiểm tra đáp án
                  </Button>
                </div>
+            )}
+
+            {/* Explanation Mode UI */}
+            {isExplanationMode && (
+              <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-700 animate-fade-in">
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Giải thích lý do bạn chọn đáp án này:
+                </label>
+
+                {!isCurrentQuestionAnswered && (
+                  <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-300 text-sm flex items-center gap-2 animate-pulse">
+                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Vui lòng <b>chọn một đáp án</b> ở trên để bắt đầu nhập giải thích.</span>
+                  </div>
+                )}
+
+                <textarea
+                  value={explanations[currentQuestion.id]?.text || ''}
+                  onChange={(e) => handleExplanationChange(e.target.value)}
+                  disabled={!isCurrentQuestionAnswered || !!explanations[currentQuestion.id]?.feedback || explanations[currentQuestion.id]?.isEvaluating}
+                  placeholder={isCurrentQuestionAnswered ? "Nhập giải thích của bạn tại đây..." : "Chọn đáp án trước..."}
+                  className={`w-full p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none min-h-[120px] transition-all ${!isCurrentQuestionAnswered ? 'opacity-50 cursor-not-allowed' : 'opacity-100'}`}
+                />
+                
+                {isCurrentQuestionAnswered && !explanations[currentQuestion.id]?.feedback && (
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      onClick={handleSubmitExplanation}
+                      isLoading={explanations[currentQuestion.id]?.isEvaluating}
+                      disabled={!explanations[currentQuestion.id]?.text?.trim()}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200 dark:shadow-none"
+                    >
+                      Nộp giải thích & Chấm điểm
+                    </Button>
+                  </div>
+                )}
+
+                {explanations[currentQuestion.id]?.feedback && (
+                  <div className="mt-6 space-y-4 animate-fade-in-up">
+                    <div className={`p-5 rounded-xl border-2 ${
+                      explanations[currentQuestion.id]?.isCorrect 
+                        ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' 
+                        : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                    }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 font-bold">
+                          {explanations[currentQuestion.id]?.isCorrect ? (
+                            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          ) : (
+                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          )}
+                          <span className={explanations[currentQuestion.id]?.isCorrect ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'}>
+                            {explanations[currentQuestion.id]?.isCorrect ? 'Giải thích hợp lý' : 'Cần cải thiện giải thích'}
+                          </span>
+                        </div>
+                        <div className="px-3 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200">
+                          Điểm: {explanations[currentQuestion.id]?.score}/10
+                        </div>
+                      </div>
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                        {explanations[currentQuestion.id]?.feedback}
+                      </p>
+                    </div>
+
+                    <div className="p-5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-900/10">
+                      <div className="flex items-center gap-2 font-bold text-indigo-700 dark:text-indigo-400 mb-3 text-sm uppercase tracking-wider">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Mẫu giải thích chuẩn:
+                      </div>
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed italic">
+                        {explanations[currentQuestion.id]?.standardModel}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {isFeedbackVisible && (currentQuestion.explanation || currentQuestion.optionExplanations) && (
