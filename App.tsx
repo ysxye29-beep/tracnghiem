@@ -6,7 +6,7 @@ import { QuizConfig } from './components/QuizConfig';
 import { QuizHistory } from './components/QuizHistory';
 import { SavedQuizzes } from './components/SavedQuizzes';
 import { processFileToQuiz } from './services/geminiService';
-import { AppState, QuizData, UserAnswers, UserExplanations, Question, QuizHistoryItem, SavedQuiz, Folder } from './types';
+import { AppState, QuizData, UserAnswers, UserExplanations, Question, QuizHistoryItem, SavedQuiz, Folder, BATCH_SIZE } from './types';
 import { auth, loginWithGoogle, logout, db } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, orderBy, onSnapshot, limit, updateDoc, setDoc, deleteField } from 'firebase/firestore';
@@ -77,7 +77,6 @@ function App() {
 
   // Current batch tracking
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0); // 0 = 1-50, 1 = 51-100...
-  const BATCH_SIZE = 50;
 
   // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
@@ -86,6 +85,14 @@ function App() {
              (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
     }
     return false;
+  });
+
+  // Font size state
+  const [fontSize, setFontSize] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('font-size') || 'medium';
+    }
+    return 'medium';
   });
 
   useEffect(() => {
@@ -97,6 +104,13 @@ function App() {
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('font-size-small', 'font-size-medium', 'font-size-large');
+    root.classList.add(`font-size-${fontSize}`);
+    localStorage.setItem('font-size', fontSize);
+  }, [fontSize]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -400,6 +414,13 @@ function App() {
   };
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
+  const toggleFontSize = () => {
+    setFontSize(prev => {
+      if (prev === 'small') return 'medium';
+      if (prev === 'medium') return 'large';
+      return 'small';
+    });
+  };
 
   const toggleBookmark = (questionId: number) => {
     setBookmarks(prev => {
@@ -809,6 +830,19 @@ function App() {
                 </div>
              )}
              
+             {/* Font Size Toggle */}
+             <button 
+               onClick={toggleFontSize}
+               className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-center"
+               aria-label="Adjust Font Size"
+               title="Chỉnh cỡ chữ"
+             >
+               <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 5v14M16 11h4M18 11v8" />
+               </svg>
+               <span className="text-[10px] font-bold uppercase">{fontSize === 'small' ? 'S' : fontSize === 'medium' ? 'M' : 'L'}</span>
+             </button>
+
              {/* Dark Mode Toggle */}
              <button 
                onClick={toggleDarkMode}

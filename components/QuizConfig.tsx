@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './Button';
-import { QuizData, Folder } from '../types';
+import { QuizData, Folder, BATCH_SIZE } from '../types';
 
 interface QuizConfigProps {
   data: QuizData;
@@ -64,9 +64,9 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({
   };
 
   const batchOptions = [];
-  for (let i = 0; i < 20; i++) {
-    const start = i * 50 + 1;
-    const end = (i + 1) * 50;
+  for (let i = 0; i < 40; i++) {
+    const start = i * BATCH_SIZE + 1;
+    const end = (i + 1) * BATCH_SIZE;
     batchOptions.push({ value: i, label: `Phần ${i + 1} (Câu ${start} - ${end})` });
   }
 
@@ -114,7 +114,7 @@ export const QuizConfig: React.FC<QuizConfigProps> = ({
                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
                  </svg>
-                 Tải thêm 50 câu tiếp theo
+                 Tải thêm {BATCH_SIZE} câu tiếp theo
                </Button>
             </div>
           </div>

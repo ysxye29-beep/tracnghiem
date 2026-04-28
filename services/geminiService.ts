@@ -73,24 +73,26 @@ const processFileToQuiz = async (
             }
           },
           {
-            text: `Analyze this document ("${fileName}") and extract multiple-choice questions.
+            text: `Analyze this document ("${fileName}") and extract EVERY single multiple-choice question.
             
-            TARGET RANGE: Extract questions specifically numbered from ${startQuestion} to ${endQuestion}.
+            TARGET RANGE: Extract the block of questions corresponding to the sequential index ${startQuestion} to ${endQuestion} (inclusive) in the document.
             
-            CRITICAL INSTRUCTIONS:
-            1. Look for questions starting with numbers in the range ${startQuestion}-${endQuestion}.
-            2. Ignore questions before ${startQuestion}.
-            3. Stop extracting after question ${endQuestion}.
-            4. If the document uses a different numbering format, try to map the ${startQuestion}-th question in the file to the ${endQuestion}-th question sequentially.
-            5. If no questions are found in this range, return an empty questions array.
- 
+            CRITICAL INSTRUCTIONS FOR FULL EXTRACTION:
+            1. DO NOT SKIP ANY QUESTIONS. You must be exhaustive. If a question is in the document, it must be extracted.
+            2. Identifying Questions: Look for patterns like "Câu 1:", "Q1.", "1.", "1/", or just a paragraph followed by multiple-choice options (A, B, C, D).
+            3. Range Logic: 
+               - If the questions are numbered (e.g., 1 to 100), extract those numbered from ${startQuestion} to ${endQuestion}.
+               - If the numbers don't start at 1 or use non-standard numbering, treat the first question found in the document as index 1, the second as index 2, and so on. Return the questions that fall within the ${startQuestion}-${endQuestion} sequential slice.
+            4. Completion: Your output must contain every question found in the specified range. Do not truncate the list.
+            5. Content Integrity: Extract the full text of the question and all its options exactly as they appear.
+
             For each question:
-            - Extract the question text.
-            - Extract options (A, B, C, D).
-            - Identify or solve for the correct answer(s). 
-            - IMPORTANT: If a question has multiple correct answers, list them all separated by commas (e.g. "A, C").
-            - Provide a main explanation.
-            - Provide specific reasons for each option (A, B, C, D) explaining why it is correct or incorrect.
+            - id: The original number/label found in the text (if any), otherwise use the sequential index.
+            - text: The question statement.
+            - options: All available choices (A, B, C, D, etc.).
+            - correctAnswerRaw: The letter(s) of the correct answer (e.g., "A" or "A, C").
+            - explanation: A detailed explanation in Vietnamese.
+            - optionExplanations: A brief reason for EACH option explaining why it is correct or incorrect.
             `
           }
         ]
