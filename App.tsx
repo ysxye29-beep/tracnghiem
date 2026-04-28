@@ -95,19 +95,6 @@ function App() {
     return 'medium';
   });
 // Bắt kết quả sau khi redirect về
-useEffect(() => {
-  import('firebase/auth').then(({ getRedirectResult }) => {
-    getRedirectResult(auth).then((result) => {
-      if (result?.user) {
-        console.log("Logged in via redirect:", result.user);
-      }
-    }).catch((err) => {
-      if (err.code !== 'auth/null-user') {
-        setErrorMsg("Đăng nhập thất bại: " + err.message);
-      }
-    });
-  });
-}, []);
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
